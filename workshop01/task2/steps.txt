@@ -1,0 +1,27 @@
+# Create the network
+docker network create mynet
+
+# Create volume for the database
+docker volume create mydbvol
+
+# Launch the database inside mynet
+# Mount mybvol to /var/lib/mysql
+docker run \
+    --detach \
+    --network mynet \
+    --mount type=volume,src=mydbvol,dst=/var/lib/mysql \
+    --name northwind-db \
+    --platform linux/amd64 \
+    stackupiss/northwind-db:v1
+
+# Launch app
+docker run \
+    --detach \
+    --publish 8080:3000 \
+    --network mynet \
+    --env DB_HOST=northwind-db \
+    --env DB_USER=root \
+    --env DB_PASSWORD=changeit \
+    --name northwind-app \
+    --platform linux/amd64 \
+    stackupiss/northwind-app:v1
