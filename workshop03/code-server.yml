@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: Namespace
+
+metadata:
+  name: codeserver
+  labels:
+    app: codeserver
+
+---
+apiVersion: v1
+kind: Secret
+
+metadata:
+  name: codeserver-secrets
+  namespace: codeserver
+  labels:
+    app: codeserver
+
+type: Opaque
+
+data:
+  PASSWORD: cGFzc3dvcmQ=
+  SUDO_PASSWORD: cGFzc3dvcmQ=
+
+---
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: codeserver-configmap
+  namespace: codeserver
+  labels:
+    app: codeserver
+
+data:
+  TZ: Asia/Singapore
+  DEFAULT_WORKSPACE: /config/workspace
+  PROXY_DOMAIN: code-209.38.57.67.nip.io
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: codeserver-pvc
+  namespace: codeserver
+  labels:
+    app: codeserver
+
+spec:
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: do-block-storage
+  accessModes:
+    - ReadWriteOncePod
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codeserver-deploy
+  namespace: codeserver
+  labels:
+    app: codeserver
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: codeserver
+      name: codeserver-pod
+  
+  template:
+    metadata:
+      name: codeserver-pod
+      namespace: codeserver
+      labels:
+        app: codeserver
+        name: codeserver-pod
+    
+    spec:
+      volumes:
+        - name: codeserver-data-volume
+          persistentVolumeClaim:
+            claimName: codeserver-pvc
+      
+      containers:
+        - name: codeserver-container
+          image: linuxserver/code-server:4.99.4
+          envFrom:
+            - configMapRef:
+                name: codeserver-configmap
+            - secretRef:
+                name: codeserver-secrets
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 200m
+            limits:
+              memory: 512Mi
+              cpu: 200m
+          ports:
+            - name: codeserver-port
+              containerPort: 8443
+          volumeMounts:
+            - mountPath: /config/workspace
+              name: codeserver-data-volume
+
+---
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: codeserver-svc
+  namespace: codeserver
+  labels:
+    app: codeserver
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: codeserver
+    name: codeserver-pod
+  
+  ports:
+    - name: codeserver-port
+      port: 8443
+      targetPort: codeserver-port
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: codeserver-ingress
+  namespace: codeserver
+  labels:
+    app: codeserver
+
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: code-209.38.57.67.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: codeserver-svc
+                port:
+                  name: codeserver-port
