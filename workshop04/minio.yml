@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: Namespace
+
+metadata:
+  name: minio
+  labels:
+    app: minio
+
+---
+apiVersion: v1
+kind: Secret
+
+metadata:
+  name: minio-secrets
+  namespace: minio
+  labels:
+    app: minio
+
+type: Opaque
+
+data:
+  MINIO_ROOT_PASSWORD: bWluaW9zZWNyZXQ=
+
+---
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: minio-configmap
+  namespace: minio
+  labels:
+    app: minio
+
+data:
+  MINIO_ROOT_USER: minio
+  MINIO_DATA_DIR: /data
+  MINIO_DISTRIBUTED_MODE_ENABLED: "yes"
+  MINIO_DISTRIBUTED_NODES: minio-{0...3}.minio-hsvc.minio.svc.cluster.local/data
+  MINIO_API_PORT_NUMBER: "9000"
+  MINIO_CONSOLE_PORT_NUMBER: "9090"
+  BITNAMI_DEBUG: "true"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-hsvc
+  namespace: minio
+  labels:
+    app: minio
+
+spec:
+  clusterIP: None
+
+  selector:
+    name: minio-pod
+
+  ports:
+    - name: minio-data-port
+      port: 9000
+      targetPort: minio-data-port
+    - name: minio-csle-port
+      port: 9090
+      targetPort: minio-csle-port
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-svc
+  namespace: minio
+  labels:
+    app: minio
+
+spec:
+  type: ClusterIP
+
+  selector:
+    name: minio-pod
+
+  ports:
+    - name: minio-data-port
+      port: 9000
+      targetPort: minio-data-port
+    - name: minio-csle-port
+      port: 9090
+      targetPort: minio-csle-port
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: minio
+  labels:
+    app: minio
+
+spec:
+  selector:
+    matchLabels:
+      name: minio-pod
+
+  serviceName: minio-hsvc
+
+  replicas: 4
+
+  template:
+    metadata:
+      name: minio-pod
+      namespace: minio
+      labels:
+        name: minio-pod
+        app: minio
+
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: minio-container
+          image: bitnami/minio:2025.4.22
+
+          envFrom:
+            - configMapRef:
+                name: minio-configmap
+            - secretRef:
+                name: minio-secrets
+
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: minio-data-port
+            timeoutSeconds: 5
+            failureThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: minio-data-port
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          ports:
+            - containerPort: 9000
+              name: minio-data-port
+            - containerPort: 9090
+              name: minio-csle-port
+
+          volumeMounts:
+            - name: minio-data-vol
+              mountPath: /data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data-vol
+        namespace: minio
+
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: do-block-storage
+        resources:
+          requests:
+            storage: 2Gi
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: minio
+  labels:
+    app: minio
+
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: data-209.38.57.67.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio-svc
+                port:
+                  name: minio-data-port
+
+    - host: console-209.38.57.67.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio-svc
+                port:
+                  name: minio-csle-port

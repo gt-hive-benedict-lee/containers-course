@@ -1,0 +1,5 @@
+# To enable WAF for Ingress for DDoS protection
+controller:
+  config:
+    enable-modsecurity: “true”
+    enable-owasp-modsecurity-crs: “true”
